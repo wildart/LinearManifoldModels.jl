@@ -28,7 +28,7 @@ CL = LMCLUS.lmclus(Xn, p)
 
 # test distribution properties
 @testset for E in [StatsBase.Histogram, KernelDensity.UnivariateKDE]
-    for C in CL
+    for C in LMCLUS.manifolds(CL)
         lmcm = estimate(NonparametricEstimator(EmpiricalLinearManifold, E), C, Xn[:,LMCLUS.labels(C)])
         @test length(lmcm) == 2
         @test params(lmcm) == (mean(C), LMCLUS.projection(C))

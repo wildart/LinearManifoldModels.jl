@@ -8,11 +8,11 @@ import LMCLUS
 
 export NonparametricEstimator, EmpiricalLinearManifold
 
-type NonparametricEstimator{D<:Distribution, T} <: Estimator{D} end
-NonparametricEstimator{D<:Distribution, T}(::Type{D}, ::Type{T}) = NonparametricEstimator{D, T}()
-Distributions.estimate{D<:Distribution, T}(e::NonparametricEstimator{D, T}, args...; kvargs...) = fit(D, T, args...; kvargs...)
+mutable struct NonparametricEstimator{D<:Distribution, T} <: Estimator{D} end
+NonparametricEstimator(::Type{D}, ::Type{T}) where {D<:Distribution, T} = NonparametricEstimator{D, T}()
+Distributions.estimate(e::NonparametricEstimator{D, T}, args...; kvargs...) where {D<:Distribution, T} = fit(D, T, args...; kvargs...)
 
-immutable EmpiricalLinearManifold{T<:Real, E} <: ContinuousMultivariateDistribution
+struct EmpiricalLinearManifold{T<:Real, E} <: ContinuousMultivariateDistribution
     μ::Vector{T}         # Translation vector matrix N x 1
     B::Matrix{T}         # Basis vectors matrix N x K
     estimate::Vector{E}  # K+1 - subspace dimensions + orthogonal subspace distance
@@ -23,12 +23,12 @@ Base.show(io::IO, d::EmpiricalLinearManifold) = print(io, "EmpiricalLinearManifo
 
 Base.length(d::EmpiricalLinearManifold) = length(d.μ)
 Distributions.params(d::EmpiricalLinearManifold) = (d.μ, d.B)
-@inline Distributions.partype{T<:Real, E}(d::EmpiricalLinearManifold{T, E}) = T
+@inline Distributions.partype(d::EmpiricalLinearManifold{T, E}) where {T<:Real, E} = T
 
 ### Fitting by histogram
 
-function StatsBase.fit{T <: Real}(::Type{EmpiricalLinearManifold}, ::Type{StatsBase.Histogram},
-                                  μ::AbstractVector{T}, B::AbstractMatrix{T}, X::AbstractMatrix{T}; kvargs...)
+function StatsBase.fit(::Type{EmpiricalLinearManifold}, ::Type{StatsBase.Histogram},
+                       μ::AbstractVector{T}, B::AbstractMatrix{T}, X::AbstractMatrix{T}; kvargs...) where {T <: Real}
 
     function calcrange(x::AbstractVector, binNumber)
         histExtrema = extrema(x)
@@ -68,22 +68,26 @@ function StatsBase.fit{T <: Real}(::Type{EmpiricalLinearManifold}, ::Type{StatsB
 	return EmpiricalLinearManifold(μ, B, estimates)
 end
 
-StatsBase.fit{T <: Real}(::Type{EmpiricalLinearManifold}, ::Type{StatsBase.Histogram},
-                         LMC::LMCLUS.Manifold, X::AbstractMatrix{T}; kvargs...) =
-                         fit(EmpiricalLinearManifold, StatsBase.Histogram,
-                             LMCLUS.mean(LMC), LMCLUS.projection(LMC), X; kvargs...)
+StatsBase.fit(::Type{EmpiricalLinearManifold}, ::Type{StatsBase.Histogram},
+              LMC::LMCLUS.Manifold, X::AbstractMatrix{T}; kvargs...) where {T <: Real} =
+    fit(EmpiricalLinearManifold, StatsBase.Histogram, LMCLUS.mean(LMC), LMCLUS.projection(LMC), X; kvargs...)
 
 ### Fitting by KDE
 
-function StatsBase.fit{T <: Real}(::Type{EmpiricalLinearManifold}, ::Type{KernelDensity.UnivariateKDE},
-                                  μ::AbstractVector{T}, B::AbstractMatrix{T}, X::AbstractMatrix{T}; kvargs...)
+function StatsBase.fit(::Type{EmpiricalLinearManifold}, ::Type{KernelDensity.UnivariateKDE},
+                       μ::AbstractVector{T}, B::AbstractMatrix{T}, X::AbstractMatrix{T}; kvargs...) where {T <: Real}
     function calcrange(x::AbstractVector, binNumber)
         bw = KernelDensity.default_bandwidth(x)
         bb = KernelDensity.kde_boundary(x, bw)
-        dist = KernelDensity.kernel_dist(Normal, bw)
-        stp = (bb[2]-bb[1])/(binNumber-1)
-        mps = bb[1]:stp:bb[2]+eps()
-        return mps, dist
+        mps = Float64[]
+        i = 1
+        while length(mps) < binNumber # range correction
+            stp = (bb[2]-bb[1])/(binNumber-i)
+            mps = bb[1]:stp:bb[2]+eps()
+            # println("$i: $binNumber => $(bb[1]):$stp:$(bb[2]) ", length(mps))
+            i -=1
+        end
+        return mps
     end
 
     K = size(B,2)
@@ -99,29 +103,28 @@ function StatsBase.fit{T <: Real}(::Type{EmpiricalLinearManifold}, ::Type{Kernel
 
     zk = B'*(X .- μ)
     for k in 1:K
-        estimates[k] = KernelDensity.kde(zk[k,:], calcrange(zk[k,:], nquants)...)
+        estimates[k] = KernelDensity.kde(zk[k,:], calcrange(zk[k,:], nquants))
     end
 
     d = LMCLUS.distance_to_manifold(X, μ, B)
-    estimates[K+1] = KernelDensity.kde(d, calcrange(d, nquants)...)
+    estimates[K+1] = KernelDensity.kde(d, calcrange(d, nquants))
 
 	return EmpiricalLinearManifold(μ, B, estimates)
 end
 
-StatsBase.fit{T <: Real}(::Type{EmpiricalLinearManifold}, ::Type{KernelDensity.UnivariateKDE},
-                         LMC::LMCLUS.Manifold, X::AbstractMatrix{T}; kvargs...) =
-                         fit(EmpiricalLinearManifold, KernelDensity.UnivariateKDE,
-                             LMCLUS.mean(LMC), LMCLUS.projection(LMC), X; kvargs...)
+StatsBase.fit(::Type{EmpiricalLinearManifold}, ::Type{KernelDensity.UnivariateKDE},
+              LMC::LMCLUS.Manifold, X::AbstractMatrix{T}; kvargs...) where {T <: Real} =
+    fit(EmpiricalLinearManifold, KernelDensity.UnivariateKDE, LMCLUS.mean(LMC), LMCLUS.projection(LMC), X; kvargs...)
 
 ### Evaluation
 
-function Distributions._pdf{T<:Real}(d::EmpiricalLinearManifold{T, StatsBase.Histogram}, x::AbstractVector{T})
+function Distributions._pdf(d::EmpiricalLinearManifold{T, StatsBase.Histogram}, x::AbstractVector{T}) where {T<:Real}
     # Basis subspace
     K = size(d.B,2)
     probValues = zeros(T, K+1)
     binCount = length(d.estimate[1].weights)
     z = d.B'*(x - d.μ)
-    dist = LMCLUS.distance_to_manifold(collect(x), d.μ, d.B)
+    dist = LMCLUS.distance_to_manifold(collect(x), d.μ, d.B) |> first
     for k in 1:K+1
         val = k > K ? dist : z[k] # Orthonormal subspace distances for K+1
         edges = first(d.estimate[k].edges)
@@ -137,11 +140,12 @@ trapint(y1, y2, r) = r.*(y1.+y2)/2
 trapint(y1, y2, x1, x2) = trapint(y1, y2, x2 .- x1)
 simpint(y1, y2, y3, x1, x2) = (x2 .- x1).*(y1 .+ 4*y2 .+ y3)/6
 
-function Distributions._pdf{T<:Real}(d::EmpiricalLinearManifold{T, KernelDensity.UnivariateKDE}, x::AbstractVector{T})
+function Distributions._pdf(d::EmpiricalLinearManifold{T, KernelDensity.UnivariateKDE},
+                            x::AbstractVector{T}) where {T<:Real}
     K = size(d.B,2)
     prob = one(T)
     z = d.B'*(x - d.μ)
-    dist = LMCLUS.distance_to_manifold(collect(x), d.μ, d.B)
+    dist = LMCLUS.distance_to_manifold(collect(x), d.μ, d.B) |> first
     for k in 1:K+1
         val = k > K ? dist : z[k] # Orthonormal subspace distances for K+1
         stp = step(d.estimate[k].x)
@@ -175,7 +179,8 @@ function Distributions._pdf{T<:Real}(d::EmpiricalLinearManifold{T, KernelDensity
     return prob
 end
 
-function Distributions._pdf!{T<:Real}(r::AbstractArray{T}, d::EmpiricalLinearManifold{T,KernelDensity.UnivariateKDE}, X::AbstractMatrix{T})
+function Distributions._pdf!(r::AbstractArray{T}, d::EmpiricalLinearManifold{T,KernelDensity.UnivariateKDE},
+                             X::AbstractMatrix{T}) where {T<:Real}
     K = size(d.B,2)
     N, n = size(X)
     Z = (d.B'*(X .- d.μ))'
@@ -197,20 +202,20 @@ function Distributions._pdf!{T<:Real}(r::AbstractArray{T}, d::EmpiricalLinearMan
     return r
 end
 
-Distributions._logpdf(d::EmpiricalLinearManifold, x::AbstractVector) = log(Distributions._pdf(d, x))
-Distributions._logpdf!(r::AbstractArray, d::EmpiricalLinearManifold, X::AbstractMatrix) = log(Distributions._pdf!(r, d, X))
+Distributions._logpdf(d::EmpiricalLinearManifold, x::AbstractVector) = log.(Distributions._pdf(d, x))
+Distributions._logpdf!(r::AbstractArray, d::EmpiricalLinearManifold, X::AbstractMatrix) = log.(Distributions._pdf!(r, d, X))
 
-function Distributions.entropy{T<:Real}(d::EmpiricalLinearManifold{T, StatsBase.Histogram})
+function Distributions.entropy(d::EmpiricalLinearManifold{T, StatsBase.Histogram}) where {T<:Real}
     H = 0.0
     for est in d.estimate
         probs = est.weights/sum(est.weights)
         filter!(x->x != zero(T), probs)
-        H += -sum(probs.*log(probs))
+        H += -sum(probs.*log.(probs))
     end
     return H
 end
 
-function Distributions.entropy{Q,R,T<:Real}(M::MixtureModel{Q,R,EmpiricalLinearManifold{T,KernelDensity.Histogram}})
+function Distributions.entropy(M::MixtureModel{Q,R,EmpiricalLinearManifold{T,KernelDensity.Histogram}}) where {Q,R,T<:Real}
     qb = first(first(components(M)).estimate).weights |> length
     c = length(components(M))
     H = zero(T)
@@ -232,7 +237,7 @@ function Distributions.entropy{Q,R,T<:Real}(M::MixtureModel{Q,R,EmpiricalLinearM
     return H
 end
 
-# function Distributions.entropy{T<:Real}(d::EmpiricalLinearManifold{T, KernelDensity.UnivariateKDE})
+# function Distributions.entropy(d::EmpiricalLinearManifold{T, KernelDensity.UnivariateKDE}) where {T<:Real}
 #     H = 0.0
 #     for est in d.estimate
 #         tot = length(est.density)
@@ -242,26 +247,20 @@ end
 #     return H
 # end
 
-function Distributions.entropy{T<:Real}(d::EmpiricalLinearManifold{T, KernelDensity.UnivariateKDE})
+function Distributions.entropy(d::EmpiricalLinearManifold{T, KernelDensity.UnivariateKDE}) where {T<:Real}
     H = 0.0
     qb = first(d.estimate).x |> length
     dp = ones(qb-1)
-    # for est in d.estimate
-    #     stp = step(est.x)
-    #     dp = [trapint(est.density[i], est.density[i+1], est.x[i], est.x[i+1]) for i in 1:length(est.density)-1]
-    #     filter!(x->x != zero(T), dp)
-    #     H += -sum(dp.*log(dp))
-    # end
     for est in d.estimate
         stp = step(est.x)
         tmp = [trapint(est.density[i], est.density[i+1], est.x[i], est.x[i+1]) for i in 1:length(est.density)-1]
         dp = dp .* tmp
     end
-    H = -sum(dp.*log(dp))
+    H = -sum(dp.*log.(dp))
     return H
 end
 
-function Distributions.entropy{Q,R,T<:Real}(M::MixtureModel{Q,R,EmpiricalLinearManifold{T,KernelDensity.UnivariateKDE}})
+function Distributions.entropy(M::MixtureModel{Q,R,EmpiricalLinearManifold{T,KernelDensity.UnivariateKDE}}) where {Q,R,T<:Real}
     qb = first(first(components(M)).estimate).x |> length
     c = length(components(M))
     H = zero(T)
