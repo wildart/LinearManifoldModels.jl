@@ -12,6 +12,7 @@ LMCLUS = "173e3a66-dd8a-5f2e-8a96-8b7ddc4d534d"
 KernelDensity = "5ab0869b-81aa-558d-bb23-cbf5423bbe9b"
 
 [compat]
+LMCLUS = ">= 0.4.1"
 julia = ">= 1.1.0"
 
 [extras]
