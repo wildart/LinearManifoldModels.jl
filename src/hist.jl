@@ -11,19 +11,17 @@ function calcrange(::Type{Histogram}, x::AbstractVector, binNumber)
 end
 
 function fit(::Type{EmpiricalLinearManifold}, ::Type{Histogram},
-             μ::AbstractVector{T}, B::AbstractMatrix{T}, X::AbstractMatrix{T}; kvargs...) where {T <: Real}
+             μ::AbstractVector{T}, B::AbstractMatrix{T}, X::AbstractMatrix{T};
+             kvargs...) where {T <: Real}
 
     N, n = size(X)
     K = size(B,2)
 
-    nbins = 0
+    nbins = sturges(n)
     for (k,v) in kvargs
         if k == :nbins
             nbins = Int(v)
         end
-    end
-    if nbins == 0
-        nbins = sturges(n)
     end
 
     estimates = Array{Histogram}(undef, K+1)
@@ -31,12 +29,12 @@ function fit(::Type{EmpiricalLinearManifold}, ::Type{Histogram},
     zk = B'*(X .- μ)
     for k in 1:K
         histEdges = calcrange(Histogram, zk[k,:], nbins)
-        estimates[k] = fit(Histogram, zk[k,:], histEdges, closed=:left)
+        estimates[k] = normalize(fit(Histogram, zk[k,:], histEdges, closed=:left), mode=:probability)
     end
 
     d = LMCLUS.distance_to_manifold(X, μ, B)
     histEdges = calcrange(Histogram, d, nbins)
-    estimates[K+1] = fit(Histogram, d, histEdges, closed=:left)
+    estimates[K+1] = normalize(fit(Histogram, d, histEdges, closed=:left), mode=:probability)
 
 	return EmpiricalLinearManifold(μ, B, estimates)
 end
@@ -54,12 +52,14 @@ function _pdf(d::EmpiricalLinearManifold{T, Histogram}, x::AbstractVector{T}) wh
     probValues = zeros(T, K+1)
     binCount = length(d.estimate[1].weights)
     z = d.B'*(x - d.μ)
-    dist = LMCLUS.distance_to_manifold(collect(x), d.μ, d.B) |> first
+    dist = LMCLUS.distance_to_manifold(x, d.μ, d.B) |> first
     for k in 1:K+1
         val = k > K ? dist : z[k] # Orthonormal subspace distances for K+1
         edges = first(d.estimate[k].edges)
-        binIndex = searchsortedlast(edges, val)
-        probValues[k] = 0 < binIndex <= binCount ? d.estimate[k].weights[binIndex]/binCount : 0.
+        binIndex = searchsortedlast(edges, val, lt=(x,y)->x<=y)
+        if 0 < binIndex <= binCount
+            probValues[k] = d.estimate[k].weights[binIndex]
+        end
     end
     return prod(probValues)
 end
@@ -70,7 +70,7 @@ end
 function entropy(d::EmpiricalLinearManifold{T, Histogram}) where {T<:Real}
     H = 0.0
     for est in d.estimate
-        dp = est.weights/sum(est.weights)
+        dp = est.weights
         filter!(x->x != zero(T), dp)
         H += entropy(dp)
         @debug "Empirical PDF" EPDF=dp H=H

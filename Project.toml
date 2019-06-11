@@ -1,6 +1,6 @@
 name = "LinearManifoldModels"
 uuid = "cd0d0d74-87e8-41df-8c2f-60e3fce673dd"
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -10,6 +10,9 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 LMCLUS = "173e3a66-dd8a-5f2e-8a96-8b7ddc4d534d"
 KernelDensity = "5ab0869b-81aa-558d-bb23-cbf5423bbe9b"
+
+[compat]
+julia = ">= 1.1.0"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
